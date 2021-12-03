@@ -35,6 +35,7 @@ class NewYorkPizzaCouponBrute
          */
         92 => 'Hawaii',
         93 => 'Brooklin Style',
+        97 => 'East Side Shoarma',
         132 => 'Downtown Döner',
         262 => 'Salami',
         // 427 => 'Perfect Peperoni',
@@ -152,7 +153,8 @@ class NewYorkPizzaCouponBrute
     private function removeCoupon(string $couponIdentifier): bool
     {
         $json = $this->request('https://www.newyorkpizza.nl/Order/RemoveCouponFromCurrentOrder', [
-            'couponIdentifier' => $couponIdentifier
+            'couponIdentifier' => $couponIdentifier,
+            'alsoRemoveProducts' => 'false'
             ], true);
 
         $data = json_decode($json, true);
