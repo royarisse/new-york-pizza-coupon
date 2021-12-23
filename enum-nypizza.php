@@ -5,7 +5,6 @@ ini_set('display_errors', 1);
 
 class NewYorkPizzaCouponBrute
 {
-
     public const COUPON_VALID = 'CouponValid';
     public const COUPON_COMPOSITION_INVALID = 'CouponProductCompositionInvalid';
     public const COUPON_INVALID = 'CouponCodeInvalid';
@@ -26,6 +25,7 @@ class NewYorkPizzaCouponBrute
          * Desserts
          */
         104 => 'Ben & Jerry\'s 100ml',
+        117 => 'portie', // Poffertjes
         121 => 'Ben & Jerry\'s 465ml',
     ];
     // Products
@@ -39,6 +39,7 @@ class NewYorkPizzaCouponBrute
         132 => 'Downtown Döner',
         262 => 'Salami',
         // 427 => 'Perfect Peperoni',
+        518 => 'Caprese',
         563 => 'Tex Mex Beef',
         583 => 'Sicilian Sausage & Salami',
         /*
@@ -55,6 +56,7 @@ class NewYorkPizzaCouponBrute
         283 => 'Strawberry Cheesecake (100 ml)',
         284 => 'Strawberry Cheesecake (465 ml)',
         288 => 'Caramel Chew Chew (100 ml)',
+        314 => 'Poffertjes',
         546 => 'Rain Dough Cookie Dough Twist (465ml)',
         559 => 'Caramel Brownie Movie Night (465ml)',
         560 => 'Non-Dairy Change the Whirled (465ml)',
@@ -83,12 +85,14 @@ class NewYorkPizzaCouponBrute
             echo sprintf(' - %s (%s): %d x € %.02f', $product['name'], $product['option'], $product['amount'], $product['price']), PHP_EOL;
         }
 
+        echo sprintf(' - TOTAL: € %.02f', $this->getOrderTotal()), PHP_EOL;
+
         echo 'Testing coupons:', PHP_EOL;
         for ($i = 100; $i <= 999; $i += 1) {
             echo ' - ', $i, ': ';
 
-            [$status, $identifier] = $this->addCoupon($i);
-            echo $status, ' ', $identifier, "\r";
+            [$status, $identifier, $discount] = $this->addCoupon($i);
+            echo sprintf('%s %s: € -%.02f', $status, $identifier, $discount), "\r";
 
             // Remove so we can test more
             if ($status === self::COUPON_VALID) {
@@ -114,15 +118,15 @@ class NewYorkPizzaCouponBrute
     {
         if (empty($product['option'])) {
             throw new RuntimeException(sprintf(
-                        'Given product doesn\'t have the \'option\' field set: %s',
-                        print_r($product, true)
+                'Given product doesn\'t have the \'option\' field set: %s',
+                print_r($product, true)
             ));
         }
 
         if (empty($product['slices']) && empty($product['product'])) {
             throw new RuntimeException(sprintf(
-                        'Given product %s need either \'slices\' or \'product\' field set!',
-                        print_r($product, true)
+                'Given product %s need either \'slices\' or \'product\' field set!',
+                print_r($product, true)
             ));
         }
     }
@@ -144,9 +148,19 @@ class NewYorkPizzaCouponBrute
             throw new RuntimeException(sprintf('Cannot parse result: \'%s\'.', $json));
         }
 
+        $status = $data['error'] ?: self::COUPON_VALID;
+
+        $discount = 0;
+        if ($status === self::COUPON_VALID) {
+            $total_no_coupon = $this->getOrderTotal();
+            $total_coupon = $this->getOrderTotal(false);
+            $discount = $total_no_coupon - $total_coupon;
+        }
+
         return [
-            $data['error'] ?: self::COUPON_VALID,
-            $data['identifier']
+            $status,
+            $data['identifier'],
+            $discount
         ];
     }
 
@@ -227,8 +241,8 @@ class NewYorkPizzaCouponBrute
         // Product details
         if (!preg_match_all($monster_regex, $html, $matches)) {
             throw new RuntimeException(sprintf(
-                        'Unable to parse products from response: \'%s\'.',
-                        $html
+                'Unable to parse products from response: \'%s\'.',
+                $html
             ));
         }
 
@@ -247,6 +261,30 @@ class NewYorkPizzaCouponBrute
         }
 
         return $products;
+    }
+
+    private function getOrderTotal(bool $use_cache = true): float
+    {
+        static $cached_total = 0;
+
+        if ($use_cache && $cached_total > 0) {
+            return $cached_total;
+        }
+
+        $html = $this->request('https://www.newyorkpizza.nl/Menu/_ReceiptPartial/');
+        $matches =[];
+
+        // Get price span from receipt partial
+        if (!preg_match('/\<span class="s4d-receipt-price s4d-total-price receipt__text receipt__total-price">€\s*(.+)\s*\<\/span>/', $html, $matches)) {
+            throw new RuntimeException(sprintf('Unable to retrieve price from response: %s', $html));
+        }
+
+        $price = (float) str_replace(',', '.', $matches[1]);
+        if ($use_cache) {
+            $cached_total = $price;
+        }
+
+        return $price;
     }
 
     private function request(string $url, array $data = [], bool $is_post = false): string
@@ -277,8 +315,8 @@ class NewYorkPizzaCouponBrute
         $resp = curl_exec($ch);
         if (!$resp) {
             throw new RuntimeException(sprintf(
-                        'Something went wrong: %s.',
-                        curl_error($ch)
+                'Something went wrong: %s.',
+                curl_error($ch)
             ));
         }
 
@@ -315,7 +353,6 @@ class NewYorkPizzaCouponBrute
         $cookies = array_unique($macthes[1]);
         $this->cookie = implode('; ', $cookies);
     }
-
 }
 
 // Read products from argv
@@ -343,9 +380,9 @@ if (file_exists($json)) {
 $products = json_decode($json, true);
 if (json_last_error() !== JSON_ERROR_NONE) {
     throw new RuntimeException(sprintf(
-                'Invalid JSON format, error: %s; In: %s',
-                json_last_error_msg(),
-                $json
+        'Invalid JSON format, error: %s; In: %s',
+        json_last_error_msg(),
+        $json
     ));
 }
 
