@@ -223,7 +223,7 @@ class NewYorkPizzaCouponBrute
         }
 
         $monster_regex = '/\<input type="hidden"\s*value="(?<amount>\d+)" \/\>\s*'
-            . '\<a href="#" class="s4d-product-amount-minus s4d-text-color-medium"\s*'
+            . '\<a href="#" class="s4d-product-amount-minus s4d-text-color-medium\s*"\s*'
             . 'data-product-identifier="(?<uid>[\w]+)"\s*'
             . 'data-product-id="(?<id>\d+)"\s*'
             . 'data-option-id="(?<option>\d+)"\s*'
@@ -278,7 +278,12 @@ class NewYorkPizzaCouponBrute
         return $price;
     }
 
-    private function testCoupons(int $max = 999): array
+    /**
+     * Highest code ever seen was 773, so don't go all the way to 999.
+     * @param int $max
+     * @return array
+     */
+    private function testCoupons(int $max = 775): array
     {
         $coupons = [];
 
