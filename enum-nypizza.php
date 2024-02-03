@@ -64,6 +64,7 @@ class NewYorkPizzaCouponBrute
     public function __construct(array $products)
     {
         $this->setCookies();
+        $this->setVerificationHeader();
 
         foreach ($products as $p) {
             $this->validateProduct($p);
@@ -81,7 +82,13 @@ class NewYorkPizzaCouponBrute
         echo 'Your order:', PHP_EOL;
 
         foreach ($this->listProducts() as $product) {
-            echo sprintf(' - %s (%s): %d x € %.02f', $product['name'], $product['option'], $product['amount'], $product['price']), PHP_EOL;
+            echo sprintf(
+                ' - %s (%s): %d x € %.02f',
+                $product['name'],
+                $product['option'],
+                $product['amount'],
+                $product['price']
+            ), PHP_EOL;
         }
 
         echo sprintf(' - TOTAL: € %.02f', $this->getOrderTotal()), PHP_EOL;
@@ -97,6 +104,7 @@ class NewYorkPizzaCouponBrute
     }
 
     private $cookie = '';
+    private $headers = [];
 
     /**
      * Validate product, throw Exception if it's not valid
@@ -132,7 +140,7 @@ class NewYorkPizzaCouponBrute
     {
         $json = $this->request('https://www.newyorkpizza.nl/CheckOut/AddCouponCodeToCurrentOrder', [
             'couponCode' => $coupon_code,
-            ], true);
+        ], true);
 
         $data = json_decode($json, true);
         if (!isset($data['error'])) {
@@ -160,7 +168,7 @@ class NewYorkPizzaCouponBrute
         $json = $this->request('https://www.newyorkpizza.nl/Order/RemoveCouponFromCurrentOrder', [
             'couponIdentifier' => $couponIdentifier,
             'alsoRemoveProducts' => 'false'
-            ], true);
+        ], true);
 
         $data = json_decode($json, true);
         return !empty($data['succeeded']);
@@ -172,7 +180,7 @@ class NewYorkPizzaCouponBrute
             'productId' => $productId,
             'optionId' => $optionId,
             'quantity' => $quantity
-            ], true);
+        ], true);
 
         $data = json_decode($json, true);
         return !empty($data['succeeded']);
@@ -199,7 +207,7 @@ class NewYorkPizzaCouponBrute
             'optionId' => $optionId,
             'quantity' => $quantity,
             'slicesConfiguration' => $slices_config
-            ], true);
+        ], true);
 
         $data = json_decode($json, true);
         return !empty($data['succeeded']);
@@ -266,7 +274,8 @@ class NewYorkPizzaCouponBrute
         $matches = [];
 
         // Get price span from receipt partial
-        if (!preg_match('/\<span class="s4d-receipt-price s4d-total-price receipt__text receipt__total-price">€\s*(.+)\s*\<\/span>/', $html, $matches)) {
+        if (!preg_match('/\<span class="s4d-receipt-price s4d-total-price receipt__text receipt__total-price">€\s*(.+)\s*\<\/span>/',
+            $html, $matches)) {
             throw new RuntimeException(sprintf('Unable to retrieve price from response: %s', $html));
         }
 
@@ -365,7 +374,7 @@ class NewYorkPizzaCouponBrute
         }
 
         asort($codes);
- 
+
         $keys = array_keys($codes);
         $count = count($codes);
         $size = pow(2, $count);
@@ -400,6 +409,7 @@ class NewYorkPizzaCouponBrute
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER => $this->headers
         ];
 
         if ($this->cookie) {
@@ -439,6 +449,7 @@ class NewYorkPizzaCouponBrute
 
         $ch = curl_init();
         curl_setopt_array($ch, [
+            CURLOPT_USERAGENT => 'new-york-pizza-enum',
             CURLOPT_URL => 'https://www.newyorkpizza.nl/',
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_RETURNTRANSFER => true,
@@ -447,14 +458,26 @@ class NewYorkPizzaCouponBrute
         ]);
 
         $headers = curl_exec($ch);
-        $macthes = [];
+        $matches = [];
 
-        if (!preg_match_all('/^Set-Cookie:\s*([^;]*)/im', $headers, $macthes)) {
+        if (!preg_match_all('/^Set-Cookie:\s*([^;]*)/im', $headers, $matches)) {
             return;
         }
 
-        $cookies = array_unique($macthes[1]);
+        $cookies = array_unique($matches[1]);
         $this->cookie = implode('; ', $cookies);
+    }
+
+    private function setVerificationHeader()
+    {
+        $response = $this->request('https://www.newyorkpizza.nl/secure/checkout');
+
+        $matches = [];
+        if (!preg_match('/getTokenHeaderValue.+return `(.+)`/ms', $response, $matches)) {
+            throw new RuntimeException('Unable to find verification token');
+        }
+
+        $this->headers[] = 'RequestVerificationToken: ' . $matches[1];
     }
 }
 
@@ -464,11 +487,11 @@ if (!$json) {
     echo 'Pass one or more products in JSON format, e.g.:', PHP_EOL;
     echo 'Usage: php -f ', __FILE__, ' \'', json_encode([
         // Ben & Jerry Strawberry Cheesecake
-        ['product' => 284, 'option' => 121, 'quantity' => 1],
+        ['product' => 284, 'option' => 121, 'quantity' => 2],
         // Brooklin Style Pizza - 30cm Italian
-        ['product' => 93, 'option' => 8, 'quantity' => 1],
+        ['product' => 93, 'option' => 8],
         // Double Tasty - Hawaii / Salami - 35cm NY Style
-        ['slices' => [92, 262], 'option' => 3, 'quantity' => 1],
+        ['slices' => [92, 262], 'option' => 3],
     ]), '\'', PHP_EOL;
     echo '  -  : php -f ', __FILE__, ' products.json', PHP_EOL;
     echo PHP_EOL;
